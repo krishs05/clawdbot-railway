@@ -179,7 +179,6 @@ async function startGateway() {
     "token",
     "--token",
     OPENCLAW_GATEWAY_TOKEN,
-    "--force",
     "--allow-unconfigured",
   ];
 
