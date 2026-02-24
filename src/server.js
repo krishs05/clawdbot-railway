@@ -148,25 +148,15 @@ function sleep(ms) {
 }
 
 async function waitForGatewayReady(opts = {}) {
-  const timeoutMs = opts.timeoutMs ?? 20_000;
+  const timeoutMs = opts.timeoutMs ?? 35_000;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      // Try the default Control UI base path, then fall back to root.
-      const paths = ["/openclaw", "/"];
-      for (const p of paths) {
-        try {
-          const res = await fetch(`${GATEWAY_TARGET}${p}`, { method: "GET" });
-          // Any HTTP response means the port is open.
-          if (res) return true;
-        } catch {
-          // try next
-        }
-      }
+      if (await probeGateway()) return true;
     } catch {
       // not ready
     }
-    await sleep(250);
+    await sleep(300);
   }
   return false;
 }
@@ -189,6 +179,8 @@ async function startGateway() {
     "token",
     "--token",
     OPENCLAW_GATEWAY_TOKEN,
+    "--force",
+    "--allow-unconfigured",
   ];
 
   gatewayProc = childProcess.spawn(OPENCLAW_NODE, clawArgs(args), {
@@ -238,7 +230,7 @@ async function ensureGatewayRunning() {
       try {
         lastGatewayError = null;
         await startGateway();
-        const ready = await waitForGatewayReady({ timeoutMs: 20_000 });
+        const ready = await waitForGatewayReady({ timeoutMs: 35_000 });
         if (!ready) {
           throw new Error("Gateway did not become ready in time");
         }
@@ -742,6 +734,7 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
     // (We also enforce loopback bind since the wrapper proxies externally.)
     // IMPORTANT: Set both gateway.auth.token (server-side) and gateway.remote.token (client-side)
     // to the same value so the Control UI can connect without "token mismatch" errors.
+    await runCmd(OPENCLAW_NODE, clawArgs(["config", "set", "gateway.mode", "local"]));
     await runCmd(OPENCLAW_NODE, clawArgs(["config", "set", "gateway.auth.mode", "token"]));
     await runCmd(OPENCLAW_NODE, clawArgs(["config", "set", "gateway.auth.token", OPENCLAW_GATEWAY_TOKEN]));
     await runCmd(OPENCLAW_NODE, clawArgs(["config", "set", "gateway.remote.token", OPENCLAW_GATEWAY_TOKEN]));
@@ -1366,6 +1359,22 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
     fs.chmodSync(STATE_DIR, 0o700);
   } catch {}
 
+  // Ensure Signal credentials dir and symlink for native Signal in Railway.
+  // /data is the Railway volume; signal-cli expects ~/.local/share/signal-cli.
+  if (STATE_DIR.startsWith("/data")) {
+    try {
+      const signalCreds = path.join(STATE_DIR, "credentials", "signal");
+      const signalLink = path.join(os.homedir(), ".local", "share", "signal-cli");
+      fs.mkdirSync(signalCreds, { recursive: true });
+      fs.mkdirSync(path.dirname(signalLink), { recursive: true });
+      if (!fs.existsSync(signalLink)) {
+        fs.symlinkSync(signalCreds, signalLink);
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
   console.log(`[wrapper] gateway token: ${OPENCLAW_GATEWAY_TOKEN ? "(set)" : "(missing)"}`);
   console.log(`[wrapper] gateway target: ${GATEWAY_TARGET}`);
   if (!SETUP_PASSWORD) {
@@ -1396,7 +1405,13 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
   // Auto-start the gateway if already configured so polling channels (Telegram/Discord/etc.)
   // work even if nobody visits the web UI.
   if (isConfigured()) {
-    console.log("[wrapper] config detected; starting gateway...");
+    console.log("[wrapper] config detected; running doctor --fix...");
+    try {
+      await runCmd(OPENCLAW_NODE, clawArgs(["doctor", "--fix"]));
+    } catch {
+      // best-effort
+    }
+    console.log("[wrapper] starting gateway...");
     try {
       await ensureGatewayRunning();
       console.log("[wrapper] gateway ready");

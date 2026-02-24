@@ -70,10 +70,6 @@ ENV PATH="/data/npm/bin:/data/pnpm:${PATH}"
 
 WORKDIR /app
 
-# Ensure Signal credentials always point to the Railway Volume automatically
-RUN mkdir -p /root/.local/share \
-  && ln -s /data/.clawdbot/credentials/signal /root/.local/share/signal-cli
-
 # Wrapper dependencies
 COPY package.json ./
 RUN npm install --omit=dev && npm cache clean --force
