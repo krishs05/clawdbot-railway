@@ -60,7 +60,9 @@ RUN wget https://github.com/AsamK/signal-cli/releases/download/v0.13.24/signal-c
   && rm signal-cli-0.13.24.tar.gz
 
 # Provide pnpm in the runtime image for openclaw updates/plugin management
-RUN corepack enable && corepack prepare pnpm@10.23.0 --activate
+# Retry on transient registry errors (503, rate limit)
+RUN corepack enable && \
+  for i in 1 2 3 4 5; do corepack prepare pnpm@10.23.0 --activate && exit 0; sleep 15; done; exit 1
 
 # Persist user-installed tools and setup persistent paths
 ENV NPM_CONFIG_PREFIX=/data/npm
