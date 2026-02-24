@@ -1,4 +1,4 @@
-# Build openclaw from source to avoid npm packaging gaps (some dist files are not shipped).
+# Build openclaw from source to avoid npm packaging gaps
 FROM node:22-bookworm AS openclaw-build
 
 # Dependencies needed for openclaw build
@@ -20,13 +20,11 @@ RUN corepack enable
 
 WORKDIR /openclaw
 
-# Pin to a known-good ref (tag/branch). Override in Railway template settings if needed.
-# Using a released tag avoids build breakage when `main` temporarily references unpublished packages.
+# Pin to the version indicated in your recent status report
 ARG OPENCLAW_GIT_REF=v2026.2.23
 RUN git clone --depth 1 --branch "${OPENCLAW_GIT_REF}" https://github.com/openclaw/openclaw.git .
 
-# Patch: relax version requirements for packages that may reference unpublished versions.
-# Apply to all extension package.json files to handle workspace protocol (workspace:*).
+# Patch: relax version requirements for workspace packages
 RUN set -eux; \
   find ./extensions -name 'package.json' -type f | while read -r f; do \
     sed -i -E 's/"openclaw"[[:space:]]*:[[:space:]]*">=[^"]+"/"openclaw": "*"/g' "$f"; \
@@ -50,14 +48,20 @@ RUN apt-get update \
     python3 \
     python3-venv \
     openjdk-17-jre-headless \
+    curl \
+    wget \
   && rm -rf /var/lib/apt/lists/*
 
-# `openclaw update` expects pnpm. Provide it in the runtime image.
+# Install signal-cli binary for native linking and easier troubleshooting
+RUN wget https://github.com/AsamK/signal-cli/releases/download/v0.13.12/signal-cli-0.13.12.tar.gz \
+  && tar xzf signal-cli-0.13.12.tar.gz -C /opt \
+  && ln -s /opt/signal-cli-0.13.12/bin/signal-cli /usr/local/bin/signal-cli \
+  && rm signal-cli-0.13.12.tar.gz
+
+# Provide pnpm in the runtime image for openclaw updates/plugin management
 RUN corepack enable && corepack prepare pnpm@10.23.0 --activate
 
-# Persist user-installed tools by default by targeting the Railway volume.
-# - npm global installs -> /data/npm
-# - pnpm global installs -> /data/pnpm (binaries) + /data/pnpm-store (store)
+# Persist user-installed tools and setup persistent paths
 ENV NPM_CONFIG_PREFIX=/data/npm
 ENV NPM_CONFIG_CACHE=/data/npm-cache
 ENV PNPM_HOME=/data/pnpm
@@ -66,25 +70,26 @@ ENV PATH="/data/npm/bin:/data/pnpm:${PATH}"
 
 WORKDIR /app
 
-# Wrapper deps
+# Ensure Signal credentials always point to the Railway Volume automatically
+RUN mkdir -p /root/.local/share \
+  && ln -s /data/.clawdbot/credentials/signal /root/.local/share/signal-cli
+
+# Wrapper dependencies
 COPY package.json ./
 RUN npm install --omit=dev && npm cache clean --force
 
-# Copy built openclaw
+# Copy built openclaw from build stage
 COPY --from=openclaw-build /openclaw /openclaw
 
-# Provide an openclaw executable
+# Provide the openclaw executable
 RUN printf '%s\n' '#!/usr/bin/env bash' 'exec node /openclaw/dist/entry.js "$@"' > /usr/local/bin/openclaw \
   && chmod +x /usr/local/bin/openclaw
 
 COPY src ./src
 
-# The wrapper listens on $PORT.
-# IMPORTANT: Do not set a default PORT here.
-# Railway injects PORT at runtime and routes traffic to that port.
-# If we force a different port, deployments can come up but the domain will route elsewhere.
+# Railway injects PORT at runtime; default wrapper typically uses 8080
 EXPOSE 8080
 
-# Ensure PID 1 reaps zombies and forwards signals.
+# Use tini to manage signal forwarding and zombie processes
 ENTRYPOINT ["tini", "--"]
 CMD ["node", "src/server.js"]
