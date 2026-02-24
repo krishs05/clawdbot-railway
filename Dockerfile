@@ -52,11 +52,11 @@ RUN apt-get update \
     wget \
   && rm -rf /var/lib/apt/lists/*
 
-# Install signal-cli binary for native linking and easier troubleshooting
-RUN wget https://github.com/AsamK/signal-cli/releases/download/v0.13.12/signal-cli-0.13.12.tar.gz \
-  && tar xzf signal-cli-0.13.12.tar.gz -C /opt \
-  && ln -s /opt/signal-cli-0.13.12/bin/signal-cli /usr/local/bin/signal-cli \
-  && rm signal-cli-0.13.12.tar.gz
+# Install signal-cli binary for native linking (v0.13.24 fixes config version compatibility)
+RUN wget https://github.com/AsamK/signal-cli/releases/download/v0.13.24/signal-cli-0.13.24.tar.gz \
+  && tar xzf signal-cli-0.13.24.tar.gz -C /opt \
+  && ln -s /opt/signal-cli-0.13.24/bin/signal-cli /usr/local/bin/signal-cli \
+  && rm signal-cli-0.13.24.tar.gz
 
 # Provide pnpm in the runtime image for openclaw updates/plugin management
 RUN corepack enable && corepack prepare pnpm@10.23.0 --activate

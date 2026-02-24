@@ -75,6 +75,15 @@ const INTERNAL_GATEWAY_PORT = Number.parseInt(process.env.INTERNAL_GATEWAY_PORT 
 const INTERNAL_GATEWAY_HOST = process.env.INTERNAL_GATEWAY_HOST ?? "127.0.0.1";
 const GATEWAY_TARGET = `http://${INTERNAL_GATEWAY_HOST}:${INTERNAL_GATEWAY_PORT}`;
 
+// Public origin for Control UI WebSocket (Railway: RAILWAY_PUBLIC_DOMAIN; override: OPENCLAW_PUBLIC_ORIGIN).
+function resolvePublicOrigin() {
+  const explicit = process.env.OPENCLAW_PUBLIC_ORIGIN?.trim();
+  if (explicit) return explicit;
+  const domain = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
+  if (domain) return `https://${domain}`;
+  return null;
+}
+
 // Always run the built-from-source CLI entry directly to avoid PATH/global-install mismatches.
 const OPENCLAW_ENTRY = process.env.OPENCLAW_ENTRY?.trim() || "/openclaw/dist/entry.js";
 const OPENCLAW_NODE = process.env.OPENCLAW_NODE?.trim() || "node";
@@ -747,6 +756,15 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
       clawArgs(["config", "set", "--json", "gateway.trustedProxies", JSON.stringify(["127.0.0.1"]) ]),
     );
 
+    // Allow Control UI WebSocket from the public Railway domain (fixes "origin not allowed").
+    const publicOrigin = resolvePublicOrigin();
+    if (publicOrigin) {
+      await runCmd(
+        OPENCLAW_NODE,
+        clawArgs(["config", "set", "--json", "gateway.controlUi.allowedOrigins", JSON.stringify([publicOrigin])]),
+      );
+    }
+
     // Optional: configure a custom OpenAI-compatible provider (base URL) for advanced users.
     if (payload.customProviderId?.trim() && payload.customProviderBaseUrl?.trim()) {
       const providerId = payload.customProviderId.trim();
@@ -1409,6 +1427,17 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
       await runCmd(OPENCLAW_NODE, clawArgs(["doctor", "--fix"]));
     } catch {
       // best-effort
+    }
+    const publicOrigin = resolvePublicOrigin();
+    if (publicOrigin) {
+      try {
+        await runCmd(
+          OPENCLAW_NODE,
+          clawArgs(["config", "set", "--json", "gateway.controlUi.allowedOrigins", JSON.stringify([publicOrigin])]),
+        );
+      } catch {
+        // best-effort
+      }
     }
     console.log("[wrapper] starting gateway...");
     try {
