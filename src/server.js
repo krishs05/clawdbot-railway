@@ -189,6 +189,7 @@ async function startGateway() {
     "--token",
     OPENCLAW_GATEWAY_TOKEN,
     "--allow-unconfigured",
+    "--force",
   ];
 
   gatewayProc = childProcess.spawn(OPENCLAW_NODE, clawArgs(args), {
@@ -233,6 +234,11 @@ async function runDoctorBestEffort() {
 async function ensureGatewayRunning() {
   if (!isConfigured()) return { ok: false, reason: "not configured" };
   if (gatewayProc) return { ok: true };
+  try {
+    if (await probeGateway()) return { ok: true };
+  } catch {
+    // not reachable, need to start
+  }
   if (!gatewayStarting) {
     gatewayStarting = (async () => {
       try {

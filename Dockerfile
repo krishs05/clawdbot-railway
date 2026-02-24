@@ -50,6 +50,7 @@ RUN apt-get update \
     openjdk-17-jre-headless \
     curl \
     wget \
+    lsof \
   && rm -rf /var/lib/apt/lists/*
 
 # Install signal-cli binary for native linking (v0.13.24 fixes config version compatibility)
