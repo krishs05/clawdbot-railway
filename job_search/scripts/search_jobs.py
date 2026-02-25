@@ -52,7 +52,7 @@ SEARCH_TERMS = [
 # ── Adzuna country codes ──────────────────────────────────────────────────────
 ADZUNA_REGIONS = {
     "uk":      {"country": "gb", "location": ""},
-    "uae":     {"country": "ae", "location": ""},
+    # "uae": not supported by Adzuna — UAE jobs sourced via separate scraper
     "india":   {"country": "in", "location": ""},
     "germany": {"country": "de", "location": ""},
     "netherlands": {"country": "nl", "location": ""},
@@ -205,6 +205,38 @@ def search_reed(role: str) -> list[dict]:
     return jobs
 
 
+# ── Source 5: The Muse (UAE / Dubai roles, free API) ─────────────────────────
+def search_themuse_uae(role: str) -> list[dict]:
+    url = (
+        f"https://www.themuse.com/api/public/jobs?"
+        f"category=Software+Engineer&location=Dubai%2C+United+Arab+Emirates"
+        f"&level=Entry+Level&level=Mid+Level&page=1"
+    )
+    data = fetch_json(url)
+    if not data or "results" not in data:
+        return []
+    jobs = []
+    for item in data["results"]:
+        title = item.get("name", "")
+        if role.split()[0].lower() not in title.lower() and "software" not in title.lower() and "developer" not in title.lower():
+            continue
+        company = item.get("company", {}).get("name", "")
+        locations = [loc.get("name", "") for loc in item.get("locations", [])]
+        jobs.append({
+            "source":    "themuse",
+            "title":     title,
+            "company":   company,
+            "location":  ", ".join(locations) or "UAE",
+            "url":       item.get("refs", {}).get("landing_page", ""),
+            "salary":    "",
+            "posted":    item.get("publication_date", ""),
+            "region":    "uae",
+            "role_query": role,
+        })
+    time.sleep(0.5)
+    return jobs
+
+
 # ── Relevance scoring ─────────────────────────────────────────────────────────
 MUST_HAVE_KEYWORDS = [
     "python", "javascript", "typescript", "node", "react", "ai", "ml",
@@ -258,6 +290,10 @@ def load_tracker() -> dict[str, dict]:
     if TRACKER_PATH.exists():
         with open(TRACKER_PATH, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
+            # If the CSV has incompatible headers (e.g. from a previous session), start fresh
+            if not reader.fieldnames or "title" not in reader.fieldnames:
+                print(f"  [tracker] Incompatible CSV format — starting fresh")
+                return {}
             for row in reader:
                 key = (row["title"].lower().strip(), row["company"].lower().strip())
                 existing[key] = row
@@ -331,6 +367,15 @@ def main():
         print(f"[Adzuna] Searching {region.upper()}...")
         for role in roles[:5]:  # limit to top 5 terms to avoid rate limits
             jobs = search_adzuna(role, adzuna_country, args.max)
+            relevant = [j for j in jobs if is_relevant(j)]
+            all_jobs.extend(relevant)
+            print(f"  '{role}' → {len(jobs)} found, {len(relevant)} relevant")
+
+    # ── UAE via The Muse (Adzuna doesn't cover ae) ──
+    if args.region in ("all", "uae"):
+        print("\n[TheMuse] Searching UAE roles...")
+        for role in ["junior software engineer", "fullstack developer", "developer"]:
+            jobs = search_themuse_uae(role)
             relevant = [j for j in jobs if is_relevant(j)]
             all_jobs.extend(relevant)
             print(f"  '{role}' → {len(jobs)} found, {len(relevant)} relevant")
