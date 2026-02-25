@@ -378,6 +378,35 @@ def apply_to_job(page, job_url: str, job_title: str, company: str,
 
         page.wait_for_timeout(1000)
 
+        # Verify the dialog actually contains Easy Apply form content —
+        # not just a nav dropdown or unrelated overlay that happens to be role=dialog
+        has_form_content = page.evaluate("""() => {
+            const selectors = [
+                '.jobs-easy-apply-modal',
+                '[data-test-modal-id]',
+                'div[role="dialog"]',
+            ];
+            for (const sel of selectors) {
+                const el = document.querySelector(sel);
+                if (!el) continue;
+                // Must contain input fields OR a known Easy Apply action button
+                const hasInput = el.querySelector('input, select, textarea') !== null;
+                const hasBtns  = el.querySelector(
+                    'button[aria-label*="apply" i], button[aria-label*="next" i], ' +
+                    'button[aria-label*="submit" i], button[aria-label*="continue" i], ' +
+                    'button[aria-label*="review" i]'
+                ) !== null;
+                // Also accept if there's a file upload (CV step)
+                const hasFile = el.querySelector('input[type="file"]') !== null;
+                if (hasInput || hasBtns || hasFile) return true;
+            }
+            return false;
+        }""")
+
+        if not has_form_content:
+            log_lines.append("  → Dialog matched but no form content (nav dropdown / external redirect)")
+            return "skipped"
+
         # Multi-step form loop (up to 10 steps)
         for step in range(10):
             log_lines.append(f"  → Step {step + 1}")
