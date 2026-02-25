@@ -130,29 +130,34 @@ def generate_cover_letter_ai(job: dict) -> str | None:
     )
     visa = visa_note(region)
 
-    prompt = f"""Write a professional cover letter for Krish Sawhney applying for "{title}" at "{company}"{f' in {location}' if location else ''}.
+    prompt = (
+        f'You are writing a cover letter. Output ONLY the letter text — no commentary, no checklist, no preamble.\n\n'
+        f'Write a professional cover letter for Krish Sawhney applying for "{title}" at "{company}"'
+        f'{f" in {location}" if location else ""}.\n\n'
+        f'Candidate background:\n'
+        f'- Education: BSc Computer Science (AI), Brunel University London (2022–2025)\n'
+        f'{exp_lines}\n'
+        f'- Dissertation: RL for urban traffic signal optimisation (Q-Learning, DQN, OpenAI Gym)\n'
+        f'- Side projects: Discord AI bot (1,000+ users, 25,000+ commands), on-device Android LLM (TinyLlama)\n'
+        f'- Key skills: {", ".join(skills)}\n\n'
+        f'Format:\n'
+        f'- Open with: Dear Hiring Manager,\n'
+        f'- 3-4 short paragraphs, max 280 words total\n'
+        f'- Highlight the 2-3 experiences/skills most relevant to "{title}"\n'
+        f'- Weave in naturally: {visa}\n'
+        f'- Close with:\n'
+        f'  Yours sincerely,\n'
+        f'  Krish Sawhney\n'
+        f'  krishsawhney0502@gmail.com | +91 8800554608\n'
+        f'  linkedin.com/in/krish-sawhney-824416261 | github.com/krishs05\n\n'
+        f'Dear Hiring Manager,'
+    )
 
-CANDIDATE PROFILE:
-Education: BSc Computer Science (AI), Brunel University London (2022–2025)
-Experience:
-{exp_lines}
-Dissertation: Reinforcement Learning for urban traffic signal optimisation (Q-Learning, DQN)
-Side projects: Discord AI bot (1,000+ users, 25,000+ commands), on-device Android LLM (TinyLlama)
-Key skills: {', '.join(skills)}
-
-INSTRUCTIONS:
-- Start with "Dear Hiring Manager,"
-- 3-4 short paragraphs, max 280 words
-- Pick the 2-3 most relevant experiences/skills for "{title}" and be specific
-- End with exactly:
-  Yours sincerely,
-  Krish Sawhney
-  krishsawhney0502@gmail.com | +91 8800554608
-  linkedin.com/in/krish-sawhney-824416261 | github.com/krishs05
-- Visa note to include naturally: {visa}
-- Output the letter ONLY, no preamble or commentary"""
-
-    return call_gemini(prompt)
+    result = call_gemini(prompt)
+    if result:
+        # Prompt ends with "Dear Hiring Manager," as a primer token — prepend it
+        return "Dear Hiring Manager,\n" + result
+    return None
 
 
 def pick_skill_block(title: str) -> str:
