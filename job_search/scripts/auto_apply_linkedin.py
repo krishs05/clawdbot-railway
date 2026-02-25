@@ -247,11 +247,16 @@ _FIND_NAV_BTN_JS = """() => {
     // LinkedIn uses aria-labels, but they vary; also match by visible text.
     const SUBMIT_LABELS  = ['submit application', 'submit'];
     const REVIEW_LABELS  = ['review your application', 'review'];
-    const NEXT_LABELS    = ['continue to next step', 'next', 'continue'];
+    const NEXT_LABELS    = ['continue to next step', 'next', 'continue', 'next step'];
+
+    // Only consider visible, enabled buttons
+    const allBtns = Array.from(document.querySelectorAll('button')).filter(b => {
+        const r = b.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && !b.disabled;
+    });
 
     function matchBtn(labels) {
-        const btns = Array.from(document.querySelectorAll('button'));
-        return btns.find(b => {
+        return allBtns.find(b => {
             const al  = (b.getAttribute('aria-label') || '').toLowerCase().trim();
             const txt = b.innerText.toLowerCase().trim();
             return labels.some(l => al === l || txt === l || al.startsWith(l) || txt.startsWith(l));
@@ -259,15 +264,35 @@ _FIND_NAV_BTN_JS = """() => {
     }
 
     const submit = matchBtn(SUBMIT_LABELS);
-    if (submit) return {action: 'submit', label: submit.getAttribute('aria-label') || submit.innerText.trim()};
+    if (submit) return {action: 'submit', label: submit.getAttribute('aria-label') || submit.innerText.trim(), debug: null};
 
     const review = matchBtn(REVIEW_LABELS);
-    if (review) return {action: 'review', label: review.getAttribute('aria-label') || review.innerText.trim()};
+    if (review) return {action: 'review', label: review.getAttribute('aria-label') || review.innerText.trim(), debug: null};
 
     const next = matchBtn(NEXT_LABELS);
-    if (next) return {action: 'next', label: next.getAttribute('aria-label') || next.innerText.trim()};
+    if (next) return {action: 'next', label: next.getAttribute('aria-label') || next.innerText.trim(), debug: null};
 
-    return null;
+    // Fallback: look for a primary/footer button in the modal that isn't Back/Close/Dismiss
+    const SKIP_LABELS = ['back', 'close', 'dismiss', 'discard', 'cancel', 'exit'];
+    const modal = document.querySelector('.jobs-easy-apply-modal, div[role="dialog"]');
+    if (modal) {
+        const footer = modal.querySelector('footer, .jobs-easy-apply-modal__content footer, [class*="footer"]');
+        const searchArea = footer || modal;
+        const primaryBtn = Array.from(searchArea.querySelectorAll('button')).find(b => {
+            const al  = (b.getAttribute('aria-label') || '').toLowerCase().trim();
+            const txt = b.innerText.toLowerCase().trim();
+            if (SKIP_LABELS.some(l => al.includes(l) || txt === l)) return false;
+            const r = b.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 && !b.disabled && txt.length > 0;
+        });
+        if (primaryBtn) {
+            return {action: 'next', label: primaryBtn.getAttribute('aria-label') || primaryBtn.innerText.trim(), debug: 'fallback'};
+        }
+    }
+
+    // Debug: return all visible button texts so we can see what's on screen
+    const debugBtns = allBtns.map(b => (b.getAttribute('aria-label') || b.innerText || '').trim()).filter(Boolean);
+    return {action: null, label: null, debug: debugBtns.slice(0, 10).join(' | ')};
 }"""
 
 _CLOSE_MODAL_JS = """() => {
@@ -427,8 +452,9 @@ def apply_to_job(page, job_url: str, job_title: str, company: str,
             nav = page.evaluate(_FIND_NAV_BTN_JS)
             log_lines.append(f"  → Nav found: {nav}")
 
-            if nav is None:
-                log_lines.append("  → No navigation button visible — stopping")
+            if nav is None or nav.get("action") is None:
+                debug_btns = (nav or {}).get("debug", "")
+                log_lines.append(f"  → No navigation button — visible buttons: {debug_btns}")
                 break
 
             action = nav.get("action")
@@ -724,6 +750,7 @@ def main():
                         print(f"    ○ [DRY RUN] Would apply")
                         applied_count += 1
                     elif result == "skipped":
+                        print(f"    ↷ Skipped (external/no modal)")
                         skipped_count += 1
                     else:
                         print(f"    ✗ {result}")
