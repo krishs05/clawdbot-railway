@@ -40,7 +40,7 @@ DRAFTS_DIR.mkdir(exist_ok=True)
 with open(PROFILE_PATH) as f:
     P = json.load(f)
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
 
 TRACKER_FIELDS = ["id", "date_found", "title", "company", "location", "region",
                   "source", "url", "salary", "score", "status", "cover_letter_file", "notes"]

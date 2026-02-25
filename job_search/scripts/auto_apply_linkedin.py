@@ -52,7 +52,7 @@ LOG_DIR.mkdir(exist_ok=True)
 
 LI_AT         = os.environ.get("LINKEDIN_LI_AT", "")
 CV_PATH       = os.environ.get("CV_PATH", str(JOB_DIR / "Krish_Sawhney_CV.pdf"))
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
 
 with open(PROFILE_PATH) as f:
     P = json.load(f)
