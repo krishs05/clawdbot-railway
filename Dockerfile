@@ -51,6 +51,20 @@ RUN apt-get update \
     curl \
     wget \
     lsof \
+    cron \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libatspi2.0-0 \
+    libdrm2 \
+    libgbm1 \
+    libxi6 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libxkbcommon0 \
+    libxcb-dri3-0 \
+    fonts-liberation \
   && rm -rf /var/lib/apt/lists/*
 
 # Install signal-cli binary for native linking (v0.13.24 fixes config version compatibility)
@@ -70,6 +84,8 @@ ENV NPM_CONFIG_CACHE=/data/npm-cache
 ENV PNPM_HOME=/data/pnpm
 ENV PNPM_STORE_DIR=/data/pnpm-store
 ENV PATH="/data/npm/bin:/data/pnpm:${PATH}"
+# Playwright browser binaries stored on persistent volume (survives restarts)
+ENV PLAYWRIGHT_BROWSERS_PATH=/data/playwright-browsers
 
 WORKDIR /app
 
@@ -86,9 +102,14 @@ RUN printf '%s\n' '#!/usr/bin/env bash' 'exec node /openclaw/dist/entry.js "$@"'
 
 COPY src ./src
 
+# Daily job search cron — 09:00 IST = 03:30 UTC
+RUN echo "30 3 * * * root bash /data/workspace/job_search/scripts/run_daily.sh >> /data/workspace/job_search/daily.log 2>&1" \
+    > /etc/cron.d/job-search \
+ && chmod 0644 /etc/cron.d/job-search
+
 # Railway injects PORT at runtime; default wrapper typically uses 8080
 EXPOSE 8080
 
 # Use tini to manage signal forwarding and zombie processes
 ENTRYPOINT ["tini", "--"]
-CMD ["node", "src/server.js"]
+CMD ["bash", "src/start.sh"]
