@@ -33,6 +33,10 @@ from datetime import datetime, timezone
 try:
     from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 except ImportError:
+    # Re-exec under the venv Python if available
+    venv_py = "/data/playwright-venv/bin/python3"
+    if os.path.exists(venv_py) and sys.executable != venv_py:
+        os.execv(venv_py, [venv_py] + sys.argv)
     print("[ERROR] Playwright not installed. Run:")
     print("  bash /data/workspace/job_search/scripts/install_playwright.sh")
     sys.exit(1)
