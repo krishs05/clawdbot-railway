@@ -241,7 +241,8 @@ def cmd_generate(rows: list[dict], job_id: str | None):
         letter  = generate_cover_letter(job)
         draft   = generate_draft(job, letter)
 
-        safe_name = f"{job['id']}_{job['company'].replace(' ', '_')[:20]}_{job['title'].replace(' ', '_')[:20]}"
+        def _safe(s): return "".join(c if c.isalnum() or c in "-_" else "_" for c in s)
+        safe_name = f"{job['id']}_{_safe(job['company'])[:20]}_{_safe(job['title'])[:20]}"
         cl_file   = COVERS_DIR / f"{safe_name}_cover.txt"
         draft_file = DRAFTS_DIR / f"{safe_name}_draft.txt"
 
