@@ -369,7 +369,6 @@ def apply_to_job(page, job_url: str, job_title: str, company: str,
 # ── LinkedIn job search ───────────────────────────────────────────────────────
 def search_linkedin_jobs(page, role: str, geo_id: str, location: str,
                          max_results: int = 25) -> list[dict]:
-    jobs = []
     import urllib.parse
     params = {
         "keywords":   role,
@@ -382,41 +381,116 @@ def search_linkedin_jobs(page, role: str, geo_id: str, location: str,
     }
     url = "https://www.linkedin.com/jobs/search/?" + urllib.parse.urlencode(params)
     page.goto(url, timeout=30000)
-    page.wait_for_timeout(3000)
+
+    # Wait for job cards — [data-job-id] is stable across LinkedIn DOM changes
+    try:
+        page.wait_for_selector("[data-job-id]", timeout=10000)
+    except PWTimeout:
+        # No results or page structure changed — try generic list wait
+        page.wait_for_timeout(4000)
 
     # Scroll to load more results
-    for _ in range(3):
-        page.keyboard.press("End")
-        page.wait_for_timeout(1000)
+    for _ in range(4):
+        page.evaluate("window.scrollBy(0, window.innerHeight)")
+        page.wait_for_timeout(800)
 
-    job_cards = page.query_selector_all(
-        ".job-card-container, .jobs-search-results__list-item"
-    )
-    for card in job_cards[:max_results]:
-        try:
-            title_el   = card.query_selector(".job-card-list__title, .base-search-card__title")
-            company_el = card.query_selector(".job-card-container__primary-description, .base-search-card__subtitle")
-            loc_el     = card.query_selector(".job-card-container__metadata-item, .job-search-card__location")
-            link_el    = card.query_selector("a[href*='/jobs/view/']")
+    # Extract job data via JavaScript — avoids brittle class-name selectors
+    raw_jobs = page.evaluate("""() => {
+        const results = [];
 
-            title   = title_el.inner_text().strip()   if title_el   else ""
-            company = company_el.inner_text().strip()  if company_el else ""
-            loc     = loc_el.inner_text().strip()      if loc_el     else location
-            href    = link_el.get_attribute("href")    if link_el    else ""
+        // Primary: cards with data-job-id (logged-in search results page)
+        const cards = document.querySelectorAll('[data-job-id]');
+        cards.forEach(card => {
+            const jobId = card.getAttribute('data-job-id') || card.getAttribute('data-entity-urn') || '';
 
-            if title and href:
-                # Clean up URL
-                if "?" in href:
-                    href = href[:href.index("?")]
-                jobs.append({
-                    "title":    title,
-                    "company":  company,
-                    "location": loc,
-                    "url":      href if href.startswith("http") else f"https://www.linkedin.com{href}",
-                    "region":   "",
-                })
-        except Exception:
+            // Title: try multiple selector patterns LinkedIn has used
+            const titleEl = card.querySelector(
+                '.job-card-list__title, .job-card-list__title--link, ' +
+                '.jobs-unified-top-card__job-title, ' +
+                'a[data-control-name="job_card_title"], ' +
+                '.base-search-card__title, ' +
+                'strong'
+            );
+            const title = titleEl ? titleEl.innerText.trim() : '';
+
+            // Company
+            const compEl = card.querySelector(
+                '.job-card-container__primary-description, ' +
+                '.job-card-container__company-name, ' +
+                '.base-search-card__subtitle, ' +
+                '.artdeco-entity-lockup__subtitle'
+            );
+            const company = compEl ? compEl.innerText.trim() : '';
+
+            // Location
+            const locEl = card.querySelector(
+                '.job-card-container__metadata-item, ' +
+                '.job-search-card__location, ' +
+                '.artdeco-entity-lockup__caption'
+            );
+            const location = locEl ? locEl.innerText.trim() : '';
+
+            // Link
+            const linkEl = card.querySelector(
+                'a[href*="/jobs/view/"], a[href*="jobs/view"]'
+            );
+            let href = linkEl ? (linkEl.getAttribute('href') || '') : '';
+            if (!href && jobId) {
+                const numericId = jobId.replace(/\\D/g, '');
+                if (numericId) href = '/jobs/view/' + numericId + '/';
+            }
+
+            if (title && href) {
+                // Strip query string
+                const cleanHref = href.split('?')[0];
+                results.push({
+                    title,
+                    company,
+                    location,
+                    href: cleanHref.startsWith('http') ? cleanHref : 'https://www.linkedin.com' + cleanHref
+                });
+            }
+        });
+
+        // Fallback: list items in the jobs results panel
+        if (results.length === 0) {
+            const items = document.querySelectorAll(
+                '.jobs-search-results__list-item, li.scaffold-layout__list-item'
+            );
+            items.forEach(item => {
+                const titleEl = item.querySelector('a[id*="job-card"], a[href*="/jobs/view/"]');
+                const title = titleEl ? titleEl.innerText.trim() : '';
+                const href = titleEl ? (titleEl.getAttribute('href') || '').split('?')[0] : '';
+                const compEl = item.querySelector('.artdeco-entity-lockup__subtitle span');
+                const company = compEl ? compEl.innerText.trim() : '';
+                if (title && href) {
+                    results.push({
+                        title,
+                        company,
+                        location: '',
+                        href: href.startsWith('http') ? href : 'https://www.linkedin.com' + href
+                    });
+                }
+            });
+        }
+
+        return results;
+    }""")
+
+    jobs = []
+    seen_urls = set()
+    for item in raw_jobs[:max_results]:
+        href = item.get("href", "")
+        if not href or href in seen_urls:
             continue
+        seen_urls.add(href)
+        jobs.append({
+            "title":    item.get("title", ""),
+            "company":  item.get("company", ""),
+            "location": item.get("location", "") or location,
+            "url":      href,
+            "region":   "",
+        })
 
     return jobs
 
