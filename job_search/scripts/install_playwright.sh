@@ -7,25 +7,18 @@ echo "=== Installing Playwright + Chromium ==="
 echo "This takes ~3-5 minutes and uses ~300MB of disk."
 echo ""
 
+# Bootstrap pip (container has python3 but not pip3 in PATH)
+echo "[1/3] Installing pip..."
+python3 -m ensurepip --upgrade 2>/dev/null || apt-get install -y python3-pip -qq
+
 # Install Python playwright package
-pip3 install --quiet playwright
+echo "[2/3] Installing Playwright..."
+python3 -m pip install --quiet playwright
 
 # Install Chromium and its system dependencies
-playwright install chromium
-playwright install-deps chromium
-
-# Decode CV from env var if present
-if [ -n "$CV_BASE64" ]; then
-    echo ""
-    echo "Decoding CV from CV_BASE64 env var..."
-    echo "$CV_BASE64" | base64 -d > /data/workspace/job_search/Krish_Sawhney_CV.pdf
-    echo "  ✓ CV saved to /data/workspace/job_search/Krish_Sawhney_CV.pdf"
-    ls -lh /data/workspace/job_search/Krish_Sawhney_CV.pdf
-else
-    echo ""
-    echo "[WARN] CV_BASE64 env var not set — CV not decoded."
-    echo "  Set it in Railway Variables (base64 of your PDF) then re-run this script."
-fi
+echo "[3/3] Installing Chromium..."
+python3 -m playwright install chromium
+python3 -m playwright install-deps chromium
 
 echo ""
 echo "=== Done! ==="
