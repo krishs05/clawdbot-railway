@@ -50,8 +50,9 @@ COVERS_DIR   = JOB_DIR / "cover_letters"
 LOG_DIR      = JOB_DIR / "apply_logs"
 LOG_DIR.mkdir(exist_ok=True)
 
-LI_AT   = os.environ.get("LINKEDIN_LI_AT", "")
-CV_PATH = os.environ.get("CV_PATH", str(JOB_DIR / "Krish_Sawhney_CV.pdf"))
+LI_AT         = os.environ.get("LINKEDIN_LI_AT", "")
+CV_PATH       = os.environ.get("CV_PATH", str(JOB_DIR / "Krish_Sawhney_CV.pdf"))
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 with open(PROFILE_PATH) as f:
     P = json.load(f)
@@ -163,6 +164,57 @@ def get_cover_letter(job_title: str) -> str:
     return ""
 
 
+# ── Gemini helpers for AI-powered form answers ───────────────────────────────
+def _call_gemini(prompt: str) -> str | None:
+    """Call Gemini REST API, return text or None on failure."""
+    if not GEMINI_API_KEY:
+        return None
+    import urllib.request
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
+    )
+    body = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": 200, "temperature": 0.4},
+    }).encode()
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode())
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception:
+        return None
+
+
+_GEMINI_FORM_CACHE: dict[str, str] = {}
+
+
+def _gemini_form_answer(question: str) -> str | None:
+    """Use Gemini to answer an open-ended job application form question."""
+    if not GEMINI_API_KEY:
+        return None
+    if question in _GEMINI_FORM_CACHE:
+        return _GEMINI_FORM_CACHE[question]
+
+    prompt = (
+        f"You are filling out a job application form for Krish Sawhney applying for a junior "
+        f"software/AI engineering role.\n\n"
+        f"Form question: \"{question}\"\n\n"
+        f"Candidate facts:\n"
+        f"- BSc Computer Science (AI), Brunel University London, 2022-2025\n"
+        f"- AI Intern at IntelliDB: ML pipelines, reduced inference latency 28%, CI/CD automation\n"
+        f"- Skills: Python, TypeScript, React, Node.js, TensorFlow, Hugging Face, Docker, AWS\n"
+        f"- Dissertation: RL traffic signal optimisation (Q-Learning, DQN, OpenAI Gym)\n"
+        f"- 1 year experience, 30-day notice, based in New Delhi, requires visa sponsorship\n\n"
+        f"Reply with ONLY the answer (1-3 sentences, first person, professional). No preamble."
+    )
+    answer = _call_gemini(prompt)
+    if answer:
+        _GEMINI_FORM_CACHE[question] = answer
+    return answer
+
+
 # ── Common form answers ───────────────────────────────────────────────────────
 COMMON_ANSWERS = {
     # Phone
@@ -238,6 +290,20 @@ def answer_field(page, label_text: str, input_el) -> bool:
                         return True
             except Exception:
                 pass
+
+    # Gemini fallback — answer open-ended text/textarea questions
+    if GEMINI_API_KEY and label_text.strip() and len(label_text.strip()) > 3:
+        try:
+            tag = input_el.evaluate("el => el.tagName.toLowerCase()")
+            input_type = (input_el.get_attribute("type") or "text").lower()
+            if tag == "textarea" or (tag == "input" and input_type in ("text", "")):
+                ai_answer = _gemini_form_answer(label_text.strip())
+                if ai_answer:
+                    input_el.fill(ai_answer[:2000])
+                    return True
+        except Exception:
+            pass
+
     return False
 
 

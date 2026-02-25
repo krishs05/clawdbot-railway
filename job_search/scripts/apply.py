@@ -23,6 +23,7 @@ import csv
 import os
 import sys
 import argparse
+import urllib.request
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -38,6 +39,8 @@ DRAFTS_DIR.mkdir(exist_ok=True)
 
 with open(PROFILE_PATH) as f:
     P = json.load(f)
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 TRACKER_FIELDS = ["id", "date_found", "title", "company", "location", "region",
                   "source", "url", "salary", "score", "status", "cover_letter_file", "notes"]
@@ -87,6 +90,71 @@ CLOSE_TEMPLATE = (
 )
 
 
+def call_gemini(prompt: str) -> str | None:
+    """Call Gemini API, return text or None on failure."""
+    if not GEMINI_API_KEY:
+        return None
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
+    )
+    body = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": 700, "temperature": 0.7},
+    }).encode()
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode())
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as e:
+        print(f"  [Gemini] API error: {e}")
+        return None
+
+
+def generate_cover_letter_ai(job: dict) -> str | None:
+    """Generate a tailored cover letter via Gemini. Returns None if unavailable."""
+    title    = job["title"]
+    company  = job["company"] or "your organisation"
+    region   = job.get("region", "")
+    location = job.get("location", "")
+
+    exp_lines = "\n".join(
+        f"- {e['title']} at {e['company']} ({e['period']}): {'; '.join(e['highlights'][:3])}"
+        for e in P.get("experience", [])
+    )
+    skills = (
+        P["skills"]["languages"][:5]
+        + P["skills"]["ml_ai"][:4]
+        + P["skills"]["infra"][:3]
+    )
+    visa = visa_note(region)
+
+    prompt = f"""Write a professional cover letter for Krish Sawhney applying for "{title}" at "{company}"{f' in {location}' if location else ''}.
+
+CANDIDATE PROFILE:
+Education: BSc Computer Science (AI), Brunel University London (2022–2025)
+Experience:
+{exp_lines}
+Dissertation: Reinforcement Learning for urban traffic signal optimisation (Q-Learning, DQN)
+Side projects: Discord AI bot (1,000+ users, 25,000+ commands), on-device Android LLM (TinyLlama)
+Key skills: {', '.join(skills)}
+
+INSTRUCTIONS:
+- Start with "Dear Hiring Manager,"
+- 3-4 short paragraphs, max 280 words
+- Pick the 2-3 most relevant experiences/skills for "{title}" and be specific
+- End with exactly:
+  Yours sincerely,
+  Krish Sawhney
+  krishsawhney0502@gmail.com | +91 8800554608
+  linkedin.com/in/krish-sawhney-824416261 | github.com/krishs05
+- Visa note to include naturally: {visa}
+- Output the letter ONLY, no preamble or commentary"""
+
+    return call_gemini(prompt)
+
+
 def pick_skill_block(title: str) -> str:
     t = title.lower()
     if any(w in t for w in ["ai", "ml", "machine learning", "reinforcement", "llm", "nlp", "data"]):
@@ -119,6 +187,14 @@ def visa_note(region: str) -> str:
 
 
 def generate_cover_letter(job: dict) -> str:
+    # Try AI-generated letter first
+    if GEMINI_API_KEY:
+        ai_letter = generate_cover_letter_ai(job)
+        if ai_letter:
+            return ai_letter
+        print("  [Gemini] Falling back to template")
+
+    # Template fallback
     title   = job["title"]
     company = job["company"] or "your organisation"
     region  = job.get("region", "")
@@ -131,7 +207,7 @@ def generate_cover_letter(job: dict) -> str:
         visa_note=visa_note(region),
     )
 
-    letter = f"""Dear Hiring Manager,
+    return f"""Dear Hiring Manager,
 
 Re: Application for {title} — {company}
 
@@ -140,7 +216,6 @@ Re: Application for {title} — {company}
 {skill_para}
 
 {close}"""
-    return letter
 
 
 def generate_draft(job: dict, cover_letter: str) -> str:

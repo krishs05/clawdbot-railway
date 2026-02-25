@@ -47,6 +47,7 @@ Fullstack Developer roles in UK, Germany, Netherlands, UAE, and India.
 | Variable | Purpose |
 |---|---|
 | `LINKEDIN_LI_AT` | LinkedIn session cookie (`li_at`) — refresh when expired |
+| `GEMINI_API_KEY` | Google Gemini API key — enables AI-generated cover letters and form question answers |
 | `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` | Adzuna API credentials |
 | `REED_API_KEY` | Reed.co.uk API key |
 | `CV_PATH` | Optional override for CV path (default: `/data/workspace/job_search/Krish_Sawhney_CV.pdf`) |
