@@ -241,32 +241,117 @@ def answer_field(page, label_text: str, input_el) -> bool:
     return False
 
 
+# ── JS helpers for button detection (robust across LinkedIn DOM changes) ───────
+_FIND_NAV_BTN_JS = """() => {
+    // Find the primary action button in the Easy Apply modal footer.
+    // LinkedIn uses aria-labels, but they vary; also match by visible text.
+    const SUBMIT_LABELS  = ['submit application', 'submit'];
+    const REVIEW_LABELS  = ['review your application', 'review'];
+    const NEXT_LABELS    = ['continue to next step', 'next', 'continue'];
+
+    function matchBtn(labels) {
+        const btns = Array.from(document.querySelectorAll('button'));
+        return btns.find(b => {
+            const al  = (b.getAttribute('aria-label') || '').toLowerCase().trim();
+            const txt = b.innerText.toLowerCase().trim();
+            return labels.some(l => al === l || txt === l || al.startsWith(l) || txt.startsWith(l));
+        });
+    }
+
+    const submit = matchBtn(SUBMIT_LABELS);
+    if (submit) return {action: 'submit', label: submit.getAttribute('aria-label') || submit.innerText.trim()};
+
+    const review = matchBtn(REVIEW_LABELS);
+    if (review) return {action: 'review', label: review.getAttribute('aria-label') || review.innerText.trim()};
+
+    const next = matchBtn(NEXT_LABELS);
+    if (next) return {action: 'next', label: next.getAttribute('aria-label') || next.innerText.trim()};
+
+    return null;
+}"""
+
+_CLOSE_MODAL_JS = """() => {
+    const dismissLabels = ['dismiss', 'close', 'discard'];
+    const btns = Array.from(document.querySelectorAll('button'));
+    const btn = btns.find(b => {
+        const al  = (b.getAttribute('aria-label') || '').toLowerCase();
+        const txt = b.innerText.toLowerCase().trim();
+        return dismissLabels.some(l => al.includes(l) || txt === l);
+    });
+    if (btn) { btn.click(); return true; }
+    return false;
+}"""
+
+
 # ── Core apply function ───────────────────────────────────────────────────────
 def apply_to_job(page, job_url: str, job_title: str, company: str,
                  dry_run: bool = False) -> str:
     """
-    Returns: 'applied' | 'skipped' | 'error:<reason>'
+    Returns: 'applied' | 'skipped' | 'dry_run' | 'error:<reason>'
     """
     log_lines = [f"[{datetime.now().isoformat()}] {job_title} @ {company}"]
 
     try:
         page.goto(job_url, timeout=30000)
-        page.wait_for_timeout(2000)
 
-        # Check for Easy Apply button
-        easy_apply_btn = page.query_selector("button.jobs-apply-button, [aria-label*='Easy Apply']")
+        # Wait for the job detail panel to settle
+        try:
+            page.wait_for_selector(
+                "button.jobs-apply-button, [aria-label*='Easy Apply'], "
+                "[data-control-name='jobdetails_topcard_inapply']",
+                timeout=8000
+            )
+        except PWTimeout:
+            page.wait_for_timeout(3000)
+
+        # Find Easy Apply button via JS (more reliable than CSS selector)
+        easy_apply_btn = page.evaluate("""() => {
+            const btns = Array.from(document.querySelectorAll('button'));
+            return btns.find(b => {
+                const al  = (b.getAttribute('aria-label') || '').toLowerCase();
+                const txt = b.innerText.toLowerCase().trim();
+                return al.includes('easy apply') || txt === 'easy apply';
+            }) || null;
+        }""")
+
         if not easy_apply_btn:
-            log_lines.append("  → No Easy Apply button found, skipping")
-            return "skipped"
+            # Double-check with Playwright selector as fallback
+            el = page.query_selector("[aria-label*='Easy Apply'], button.jobs-apply-button")
+            if not el:
+                log_lines.append("  → No Easy Apply button — external application, skipping")
+                return "skipped"
+            el.click()
+        else:
+            # Click via JS handle
+            page.evaluate("""() => {
+                const btns = Array.from(document.querySelectorAll('button'));
+                const btn = btns.find(b => {
+                    const al  = (b.getAttribute('aria-label') || '').toLowerCase();
+                    const txt = b.innerText.toLowerCase().trim();
+                    return al.includes('easy apply') || txt === 'easy apply';
+                });
+                if (btn) btn.click();
+            }""")
 
-        log_lines.append("  → Easy Apply button found")
+        log_lines.append("  → Easy Apply button clicked")
 
         if dry_run:
-            log_lines.append("  → DRY RUN — not clicking")
+            log_lines.append("  → DRY RUN — not proceeding")
+            page.evaluate(_CLOSE_MODAL_JS)
             return "dry_run"
 
-        easy_apply_btn.click()
-        page.wait_for_timeout(2000)
+        # Wait for the Easy Apply modal to open
+        try:
+            page.wait_for_selector(
+                ".jobs-easy-apply-modal, [data-test-modal-id], "
+                "div[role='dialog']",
+                timeout=6000
+            )
+        except PWTimeout:
+            log_lines.append("  → Easy Apply modal did not open")
+            return "skipped"
+
+        page.wait_for_timeout(1000)
 
         # Multi-step form loop (up to 10 steps)
         for step in range(10):
@@ -276,20 +361,28 @@ def apply_to_job(page, job_url: str, job_title: str, company: str,
             file_inputs = page.query_selector_all("input[type='file']")
             for fi in file_inputs:
                 if Path(CV_PATH).exists():
-                    fi.set_input_files(CV_PATH)
-                    log_lines.append("  → Uploaded CV")
-                    page.wait_for_timeout(1000)
+                    try:
+                        fi.set_input_files(CV_PATH)
+                        log_lines.append("  → Uploaded CV")
+                        page.wait_for_timeout(1000)
+                    except Exception:
+                        pass
 
-            # Fill text/select fields
+            # Fill text/select/radio fields
             form_groups = page.query_selector_all(
-                ".jobs-easy-apply-form-section__grouping, .fb-form-element"
+                ".jobs-easy-apply-form-section__grouping, .fb-form-element, "
+                "[data-test-form-element]"
             )
             for group in form_groups:
                 try:
-                    label_el = group.query_selector("label, .fb-form-element-label")
+                    label_el = group.query_selector(
+                        "label, .fb-form-element-label, [data-test-form-element-label]"
+                    )
                     label_text = label_el.inner_text() if label_el else ""
 
-                    inputs = group.query_selector_all("input:not([type='hidden']):not([type='file']), select, textarea")
+                    inputs = group.query_selector_all(
+                        "input:not([type='hidden']):not([type='file']), select, textarea"
+                    )
                     for inp in inputs:
                         answer_field(page, label_text, inp)
 
@@ -299,7 +392,6 @@ def apply_to_job(page, job_url: str, job_title: str, company: str,
                         label_lower = label_text.lower()
                         for key, val in COMMON_ANSWERS.items():
                             if key in label_lower:
-                                # Find radio matching our answer
                                 for radio in radios:
                                     radio_label = page.query_selector(
                                         f"label[for='{radio.get_attribute('id')}']"
@@ -310,7 +402,6 @@ def apply_to_job(page, job_url: str, job_title: str, company: str,
                                             radio.click()
                                             break
                                 else:
-                                    # Default: click first radio
                                     radios[0].click()
                                 break
                 except Exception:
@@ -324,42 +415,72 @@ def apply_to_job(page, job_url: str, job_title: str, company: str,
             if cover_textareas:
                 cl = get_cover_letter(job_title)
                 if cl:
-                    cover_textareas[0].fill(cl)
-                    log_lines.append("  → Filled cover letter")
+                    try:
+                        cover_textareas[0].fill(cl)
+                        log_lines.append("  → Filled cover letter")
+                    except Exception:
+                        pass
 
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(600)
 
-            # Navigation buttons
-            next_btn   = page.query_selector("button[aria-label='Continue to next step']")
-            review_btn = page.query_selector("button[aria-label='Review your application']")
-            submit_btn = page.query_selector("button[aria-label='Submit application']")
+            # Find navigation button via JS (handles any aria-label LinkedIn uses)
+            nav = page.evaluate(_FIND_NAV_BTN_JS)
+            log_lines.append(f"  → Nav found: {nav}")
 
-            if submit_btn:
-                submit_btn.click()
-                page.wait_for_timeout(2000)
-                log_lines.append("  ✓ Application submitted!")
-                # Close confirmation dialog if it appears
-                close = page.query_selector("button[aria-label='Dismiss']")
-                if close:
-                    close.click()
-                return "applied"
-            elif review_btn:
-                review_btn.click()
-                page.wait_for_timeout(1500)
-            elif next_btn:
-                next_btn.click()
-                page.wait_for_timeout(1500)
-            else:
-                log_lines.append("  → No navigation button found, stopping")
+            if nav is None:
+                log_lines.append("  → No navigation button visible — stopping")
                 break
 
+            action = nav.get("action")
+
+            if action == "submit":
+                # Click submit via JS
+                page.evaluate("""() => {
+                    const btns = Array.from(document.querySelectorAll('button'));
+                    const s = ['submit application', 'submit'];
+                    const btn = btns.find(b => {
+                        const al  = (b.getAttribute('aria-label') || '').toLowerCase().trim();
+                        const txt = b.innerText.toLowerCase().trim();
+                        return s.some(l => al === l || txt === l || al.startsWith(l) || txt.startsWith(l));
+                    });
+                    if (btn) btn.click();
+                }""")
+                page.wait_for_timeout(2500)
+                log_lines.append("  ✓ Application submitted!")
+                # Dismiss confirmation modal
+                page.evaluate(_CLOSE_MODAL_JS)
+                return "applied"
+
+            elif action in ("review", "next"):
+                page.evaluate(f"""() => {{
+                    const btns = Array.from(document.querySelectorAll('button'));
+                    const labels = {json.dumps(['review your application', 'review', 'continue to next step', 'next', 'continue'] if action == 'review' else ['continue to next step', 'next', 'continue'])};
+                    const btn = btns.find(b => {{
+                        const al  = (b.getAttribute('aria-label') || '').toLowerCase().trim();
+                        const txt = b.innerText.toLowerCase().trim();
+                        return labels.some(l => al === l || txt === l || al.startsWith(l) || txt.startsWith(l));
+                    }});
+                    if (btn) btn.click();
+                }}""")
+                page.wait_for_timeout(1500)
+
+        # Didn't reach submit — close the modal cleanly
+        page.evaluate(_CLOSE_MODAL_JS)
         return "error:no_submit_reached"
 
     except PWTimeout:
         log_lines.append("  → Timeout")
+        try:
+            page.evaluate(_CLOSE_MODAL_JS)
+        except Exception:
+            pass
         return "error:timeout"
     except Exception as e:
         log_lines.append(f"  → Exception: {e}")
+        try:
+            page.evaluate(_CLOSE_MODAL_JS)
+        except Exception:
+            pass
         return f"error:{str(e)[:80]}"
     finally:
         log_file = LOG_DIR / f"apply_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
