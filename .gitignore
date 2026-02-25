@@ -14,3 +14,11 @@ npm-debug.log*
 # OS
 .DS_Store
 .cursor/mcp.json
+
+# Job search — runtime-generated files (contain personal data, change constantly)
+job_search/tracker.csv
+job_search/leads/
+job_search/cover_letters/
+job_search/applications/*
+!job_search/applications/.gitkeep
+job_search/daily.log

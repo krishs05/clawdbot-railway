@@ -1,0 +1,78 @@
+{
+  "personal": {
+    "name": "Krish Sawhney",
+    "email": "krishsawhney0502@gmail.com",
+    "phone": "+918800554608",
+    "location": "New Delhi, India",
+    "linkedin": "https://linkedin.com/in/krish-sawhney-824416261",
+    "github": "https://github.com/krishs05",
+    "website": "https://bertram.co.in",
+    "notice_period_days": 30,
+    "visa_status": "sponsorship_required",
+    "willing_to_relocate": true,
+    "work_mode_preference": ["hybrid", "onsite", "remote"]
+  },
+  "education": [
+    {
+      "institution": "Brunel University London",
+      "degree": "BSc Computer Science (Artificial Intelligence)",
+      "years": "2022-2025",
+      "relevant_courses": [
+        "Reinforcement Learning",
+        "Distributed Systems",
+        "Machine Learning Engineering",
+        "Data Analytics"
+      ]
+    }
+  ],
+  "experience": [
+    {
+      "title": "AI Intern",
+      "company": "IntelliDB Enterprise",
+      "period": "Jul 2025 – Present",
+      "highlights": [
+        "Built full-stack AI-integrated applications using TypeScript, React Native, Next.js, Node.js",
+        "Designed model fine-tuning and evaluation pipelines, reducing deployment workflow time by ~40%",
+        "Contributed to scalable model-serving infrastructure supporting 200+ concurrent inference requests",
+        "Reduced inference latency by ~28% through pipeline optimisation and async restructuring",
+        "Implemented CI/CD automation for ML deployments, reducing release cycle time by ~35%"
+      ]
+    },
+    {
+      "title": "Technical Assistant",
+      "company": "NutriAdvice (Production Infrastructure)",
+      "period": "Jun 2024 – Sep 2024",
+      "highlights": [
+        "Managed production web infrastructure serving 10,000+ monthly visits",
+        "Improved system uptime from 96% to 99.3%",
+        "Built automation bots reducing manual operational workload by ~45%",
+        "Identified and mitigated 6+ security vulnerabilities"
+      ]
+    }
+  ],
+  "skills": {
+    "languages": ["Python", "TypeScript", "JavaScript", "Kotlin", "Java"],
+    "ml_ai": ["Reinforcement Learning", "Q-Learning", "DQN", "TensorFlow", "Hugging Face", "Model Fine-Tuning", "TinyLlama", "LLaMA", "Claude", "Gemini"],
+    "backend": ["Node.js", "Spring Boot", "PostgreSQL", "REST APIs"],
+    "frontend": ["React", "React Native", "Next.js"],
+    "infra": ["Docker", "CI/CD", "AWS", "GCP", "Azure"],
+    "tools": ["SUMO", "Streamlit", "Matplotlib", "OpenAI Gym"]
+  },
+  "target_roles": [
+    "Junior AI Engineer",
+    "Junior Software Developer",
+    "Fullstack Developer",
+    "Junior ML Engineer",
+    "Associate Software Engineer",
+    "Junior Backend Developer",
+    "AI/ML Developer",
+    "Junior Python Developer"
+  ],
+  "target_regions": ["UK", "Europe", "UAE", "India"],
+  "target_countries": {
+    "UK": ["London", "Manchester", "Birmingham", "Remote"],
+    "Europe": ["Germany", "Netherlands", "Ireland", "Sweden"],
+    "UAE": ["Dubai", "Abu Dhabi"],
+    "India": ["Bangalore", "Gurgaon", "Hyderabad", "Mumbai", "Remote"]
+  }
+}
